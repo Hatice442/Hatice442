@@ -1,0 +1,46 @@
+Step 1: Update your system
+
+Before installing any new software, it’s a good idea to make sure your system is up-to-date. Open a terminal and run:
+
+sudo apt update
+sudo apt upgrade
+
+Step 2: Install dependencies (if needed)
+
+Ensure that you have the necessary dependencies for the installation process:
+
+sudo apt install wget gpg
+
+Step 3: Add the Microsoft repository for VS Code
+
+To install the latest version of Visual Studio Code, you need to add the Microsoft repository to your system. Run the following commands:
+
+    Download and install the Microsoft GPG key:
+
+wget -qO- https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+
+    Add the VS Code repository to your system's software sources:
+
+sudo add-apt-repository "deb [arch=amd64] https://packages.microsoft.com/repos/vscode stable main"
+
+Step 4: Install Visual Studio Code
+
+After adding the repository, update your package list and install VS Code:
+
+sudo apt update
+sudo apt install code
+
+Step 5: Launch VS Code
+
+Once the installation is complete, you can open Visual Studio Code by either:
+
+    Typing code in the terminal, or
+    Searching for "Visual Studio Code" in your application menu.
+
+Troubleshooting
+
+If you run into errors during any of these steps, please share the error message with me, and I can guide you further!
+By messaging ChatGPT, you agree to our Terms and have read our Privacy Policy.
+Don't share sensitive info. Chats may be reviewed and used to train our models. Learn more
+
+
