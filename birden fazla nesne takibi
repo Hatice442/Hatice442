@@ -1,0 +1,74 @@
+import cv2
+import numpy as np
+
+# Kamerayı başlat
+kamera = cv2.VideoCapture(0)
+if not kamera.isOpened():
+    print("Kamera açılamadı!")
+    exit()
+
+# HSV renk aralıkları (kırmızı renk için)
+lower_red = np.array([0, 120, 70])    # Kırmızı alt sınır
+upper_red = np.array([10, 255, 255])  # Kırmızı üst sınır
+lower_red2 = np.array([170, 120, 70]) # Kırmızı ikinci alt sınır (hue döngüsü nedeniyle)
+upper_red2 = np.array([180, 255, 255]) # Kırmızı ikinci üst sınır
+
+while True:
+    # Kameradan bir kare al
+    ret, frame = kamera.read()
+    if not ret:
+        print("Görüntü alınamadı!")
+        break
+
+    # Görüntünün genişliğini al
+    frame_width = frame.shape[1]
+
+    # Görüntüyü HSV renk uzayına çevir
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    # Kırmızı renk için maske oluştur
+    mask1 = cv2.inRange(hsv, lower_red, upper_red)
+    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+    mask = mask1 | mask2  # Her iki aralığı birleştir
+
+    # Gürültüyü azaltmak için maske üzerinde morfolojik işlemler
+    mask = cv2.erode(mask, None, iterations=2)
+    mask = cv2.dilate(mask, None, iterations=2)
+
+    # Maske üzerinde konturlar bul
+    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    
+    for contour in contours:
+        # Kontur alanını kontrol et (çok küçük nesneleri filtrele)
+        if cv2.contourArea(contour) > 500:
+            # Konturun çevresine bir çember çiz
+            ((x, y), radius) = cv2.minEnclosingCircle(contour)
+            center = (int(x), int(y))  # Merkez noktası
+
+            # Çember ve merkez noktası çiz
+            cv2.circle(frame, center, int(radius), (0, 255, 0), 2)
+            cv2.circle(frame, center, 5, (255, 0, 0), -1)
+
+            # Nesnenin konumunu belirle
+            if x < frame_width / 3:
+                position = "Sol"
+            elif x > 2 * frame_width / 3:
+                position = "Sag"
+            else:
+                position = "Orta"
+
+            # Konumu nesne üzerine yaz
+            cv2.putText(frame, f"{position}", (int(x) - 20, int(y) - 20), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+
+    # Kameradan alınan görüntüyü ve maskeyi göster
+    cv2.imshow("Kamera Goruntusu", frame)
+    cv2.imshow("Kirmizi Nesne Maske", mask)
+
+    # 'x' tuşuna basıldığında çık
+    if cv2.waitKey(1) & 0xFF == ord('x'):
+        break
+
+# Kaynakları serbest bırak
+kamera.release()
+cv2.destroyAllWindows()
