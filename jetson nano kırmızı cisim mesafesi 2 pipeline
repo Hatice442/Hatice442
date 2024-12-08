@@ -1,0 +1,84 @@
+import cv2
+import numpy as np
+import math
+
+def find_red_center_distance(frame):
+    # Görüntüyü HSV renk uzayına dönüştür
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    
+    # Kırmızı renk için maske oluştur
+    lower_red1 = np.array([0, 120, 70])
+    upper_red1 = np.array([10, 255, 255])
+    lower_red2 = np.array([170, 120, 70])
+    upper_red2 = np.array([180, 255, 255])
+    mask1 = cv2.inRange(hsv, lower_red1, upper_red1)
+    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+    mask = mask1 | mask2
+    
+    # Kırmızı cismin konturunu bul
+    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    if contours:
+        largest_contour = max(contours, key=cv2.contourArea)
+        M = cv2.moments(largest_contour)
+        if M['m00'] != 0:
+            red_center = (int(M['m10'] / M['m00']), int(M['m01'] / M['m00']))
+        else:
+            return None, None, None  # Cisim bulunamadı
+    else:
+        return None, None, None  # Cisim bulunamadı
+    
+    # Ekran merkezini hesapla
+    height, width, _ = frame.shape
+    screen_center = (width // 2, height // 2)
+    
+    # X ve Y eksenlerindeki uzaklıkları hesapla (mutlak değer)
+    distance_x = abs(red_center[0] - screen_center[0])
+    distance_y = abs(red_center[1] - screen_center[1])
+    
+    return red_center, distance_x, distance_y, screen_center
+
+# Gstreamer pipeline: Jetson Nano için kamera akışı
+gst_pipeline = (
+    "nvarguscamerasrc ! video/x-raw(memory:NVMM), "
+    "width=(int)640, height=(int)480, framerate=(fraction)30/1 ! "
+    "nvvidconv ! video/x-raw, format=(string)BGRx ! "
+    "videoconvert ! video/x-raw, format=(string)BGR ! appsink"
+)
+
+# Kamera akışı başlat
+cap = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+
+if not cap.isOpened():
+    print("Kamera açılamadı! Gstreamer pipeline doğru mu?")
+    exit()
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        print("Kamera görüntüsü alınamadı!")
+        break
+
+    # Kırmızı cisim ile ekran merkezi arasındaki mesafeleri bul
+    red_center, distance_x, distance_y, screen_center = find_red_center_distance(frame)
+
+    if red_center:
+        # Kırmızı cismin merkezini yeşil ile işaretle
+        cv2.circle(frame, red_center, 5, (0, 255, 0), -1)
+        
+        # Ekran merkezini mavi ile işaretle
+        cv2.circle(frame, screen_center, 5, (255, 0, 0), -1)
+        
+        # Mesafeleri ekrana yazdır
+        cv2.putText(frame, f'Distance X: {distance_x}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+        cv2.putText(frame, f'Distance Y: {distance_y}', (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    
+    # Ekranı göster
+    cv2.imshow('Red Center Distance', frame)
+
+    # 'q' tuşuna basıldığında çık
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Kamerayı kapat
+cap.release()
+cv2.destroyAllWindows()
