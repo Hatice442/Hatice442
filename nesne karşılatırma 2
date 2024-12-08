@@ -1,0 +1,80 @@
+import cv2
+import numpy as np
+
+# Kamerayı başlat
+kamera = cv2.VideoCapture(-2)
+if not kamera.isOpened():
+    print("Kamera açılamadı!")
+    exit()
+
+# HSV renk aralıkları (kırmızı renk için)
+lower_red = np.array([0, 120, 70])    # Kırmızı alt sınır
+upper_red = np.array([10, 255, 255])  # Kırmızı üst sınır
+lower_red2 = np.array([170, 120, 70]) # Kırmızı ikinci alt sınır (hue döngüsü nedeniyle)
+upper_red2 = np.array([180, 255, 255]) # Kırmızı ikinci üst sınır
+
+while True:
+    # Kameradan bir kare al
+    ret, frame = kamera.read()
+    if not ret:
+        print("Görüntü alınamadı!")
+        break
+
+    # Görüntüyü HSV renk uzayına çevir
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    # Kırmızı renk için maske oluştur
+    mask1 = cv2.inRange(hsv, lower_red, upper_red)
+    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+    mask = mask1 | mask2  # Her iki aralığı birleştir
+
+    # Gürültüyü azaltmak için maske üzerinde morfolojik işlemler
+    mask = cv2.erode(mask, None, iterations=2)
+    mask = cv2.dilate(mask, None, iterations=2)
+
+    # Maske üzerinde konturlar bul
+    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if len(contours) >= 2:  # En az iki nesne tespit edildiyse
+        # Alanlarına göre konturları sırala
+        sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
+        
+        # İlk iki büyük konturu al
+        contour1 = sorted_contours[0]
+        contour2 = sorted_contours[1]
+        
+        # Alanlarını hesapla
+        area1 = cv2.contourArea(contour1)
+        area2 = cv2.contourArea(contour2)
+
+        # İlk konturun çevresine bir çember çiz
+        ((x1, y1), radius1) = cv2.minEnclosingCircle(contour1)
+        center1 = (int(x1), int(y1))
+        cv2.circle(frame, center1, int(radius1), (0, 255, 0), 2)
+        cv2.putText(frame, f"Alan: {int(area1)}", (int(x1), int(y1)-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+        # İkinci konturun çevresine bir çember çiz
+        ((x2, y2), radius2) = cv2.minEnclosingCircle(contour2)
+        center2 = (int(x2), int(y2))
+        cv2.circle(frame, center2, int(radius2), (0, 255, 0), 2)
+        cv2.putText(frame, f"Alan: {int(area2)}", (int(x2), int(y2)-10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+        # Alanları karşılaştır ve büyük nesneye yaz
+        if area1 > area2:
+            cv2.putText(frame, "Bu nesne digerinden buyuk", (int(x1) - 50, int(y1) + 10), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+        else:
+            cv2.putText(frame, "Bu nesne digerinden buyuk", (int(x2) - 50, int(y2) + 10), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
+    # Kameradan alınan görüntüyü ve maskeyi göster
+    cv2.imshow("Kamera Goruntusu", frame)
+    cv2.imshow("Kirmizi Nesne Maske", mask)
+
+    # 'x' tuşuna basıldığında çık
+    if cv2.waitKey(1) & 0xFF == ord('x'):
+        break
+
+# Kaynakları serbest bırak
+kamera.release()
+cv2.destroyAllWindows()
