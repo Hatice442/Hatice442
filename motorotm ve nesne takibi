@@ -1,0 +1,132 @@
+import cv2
+import numpy as np
+import threading
+import time
+import Jetson.GPIO as GPIO
+
+# GPIO pin tanımları
+X_STEP_PIN = 18  # X motoru STEP pini
+X_DIR_PIN = 16   # X motoru DIRECTION pini
+Y_STEP_PIN = 22  # Y motoru STEP pini
+Y_DIR_PIN = 24   # Y motoru DIRECTION pini
+
+# GPIO ayarları
+GPIO.setmode(GPIO.BOARD)
+GPIO.setup(X_STEP_PIN, GPIO.OUT)
+GPIO.setup(X_DIR_PIN, GPIO.OUT)
+GPIO.setup(Y_STEP_PIN, GPIO.OUT)
+GPIO.setup(Y_DIR_PIN, GPIO.OUT)
+
+# PWM ve hız ayarları
+v2 = 200  # Y ekseni sabit hız
+fps = 30  # Kamera okuma hızı (frame per second)
+
+# Kamerayı başlat
+cap = cv2.VideoCapture(0)
+ws, hs = 640, 480  # Genişlik ve yükseklik
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, ws)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, hs)
+
+# Merkez koordinatları
+center_x = ws // 2
+center_y = hs // 2
+
+def move_motor(pin_step, pin_dir, steps, direction):
+    """Motoru döndürme fonksiyonu."""
+    GPIO.output(pin_dir, GPIO.HIGH if direction > 0 else GPIO.LOW)
+    for _ in range(steps):
+        GPIO.output(pin_step, GPIO.HIGH)
+        time.sleep(0.001)  # Zamanlama sinyali (1ms)
+        GPIO.output(pin_step, GPIO.LOW)
+        time.sleep(0.001)
+
+def stop_motor(pin_step):
+    """Motoru durdurmak için düşük sinyal gönderir."""
+    GPIO.output(pin_step, GPIO.LOW)
+
+def control_motor(dx, dy):
+    """Motor hızlarını ve yönlerini ayarlayan fonksiyon."""
+    if dy == 0:  # Bölme hatası olmaması için
+        dy = 1
+
+    # Motor hızlarını hesapla
+    v1 = abs((dx * v2) / dy)  # X ekseni hızı
+    steps_x = int(v1 / fps)   # X ekseni adım sayısı
+    steps_y = int(v2 / fps)   # Y ekseni adım sayısı
+
+    # X motoru için yön
+    direction_x = 1 if dx > 0 else -1
+    direction_y = 1 if dy > 0 else -1
+
+    # Motorları eş zamanlı çalıştır
+    thread_x = threading.Thread(target=move_motor, args=(X_STEP_PIN, X_DIR_PIN, steps_x, direction_x))
+    thread_y = threading.Thread(target=move_motor, args=(Y_STEP_PIN, Y_DIR_PIN, steps_y, direction_y))
+
+    thread_x.start()
+    thread_y.start()
+
+    thread_x.join()
+    thread_y.join()
+
+def detect_target():
+    """Hedefi algılama ve motorları kontrol etme."""
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+
+            blurred = cv2.GaussianBlur(frame, (11, 11), 0)
+            hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+
+            # Kırmızı renk aralığı
+            red_min1 = np.array([0, 100, 100])
+            red_max1 = np.array([10, 255, 255])
+            red_min2 = np.array([160, 100, 100])
+            red_max2 = np.array([180, 255, 255])
+
+            red_mask1 = cv2.inRange(hsv, red_min1, red_max1)
+            red_mask2 = cv2.inRange(hsv, red_min2, red_max2)
+            red_mask = cv2.add(red_mask1, red_mask2)
+
+            contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            if contours:
+                # En büyük konturu seç
+                largest_contour = max(contours, key=cv2.contourArea)
+                ((x, y), radius) = cv2.minEnclosingCircle(largest_contour)
+
+                if radius > 10:  # Eğer hedef belirli bir boyuttaysa
+                    fx = int(x)
+                    fy = int(y)
+
+                    # Mesafeyi hesapla
+                    dx = center_x - fx
+                    dy = fy - center_y
+
+                    # Hedefe motorları hareket ettir
+                    control_motor(dx, dy)
+
+                    # Görselleştirme
+                    cv2.circle(frame, (fx, fy), int(radius), (0, 255, 0), 2)
+                    cv2.putText(frame, f"Target (dx={dx}, dy={dy})", (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            else:
+                # Hedef bulunamadığında motorları durdur
+                stop_motor(X_STEP_PIN)
+                stop_motor(Y_STEP_PIN)
+
+            # Görüntüyü göster
+            cv2.imshow("Target Detection", frame)
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+    finally:
+        # Kaynakları serbest bırak
+        cap.release()
+        cv2.destroyAllWindows()
+        GPIO.cleanup()
+
+# Hedef algılama başlat
+detect_target()
