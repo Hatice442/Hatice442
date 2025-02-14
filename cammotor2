@@ -1,0 +1,128 @@
+import cv2
+import numpy as np
+import threading
+import time
+import Jetson.GPIO as GPIO
+
+# GPIO Pin Tanımları
+X_STEP_PIN = 18  # X ekseni step pini
+X_DIR_PIN = 16   # X ekseni yön pini
+Y_STEP_PIN = 22  # Y ekseni step pini
+Y_DIR_PIN = 24   # Y ekseni yön pini
+
+# GPIO Ayarları
+GPIO.setmode(GPIO.BOARD)
+GPIO.setup([X_STEP_PIN, X_DIR_PIN, Y_STEP_PIN, Y_DIR_PIN], GPIO.OUT)
+
+# Motor Hız Ayarları
+v2 = 200  # Y ekseni sabit hız
+fps = 30  # Kamera FPS
+
+# Kamera Ayarları
+cap = cv2.VideoCapture(0)
+ws, hs = 640, 480  # Genişlik ve yükseklik
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, ws)
+cap.set(cv2.CAP_PROP_FRAME_HEIGHT, hs)
+
+# Merkez Koordinatları
+center_x, center_y = ws // 2, hs // 2
+
+
+def move_motor(pin_step, pin_dir, steps, direction):
+    """Motoru belirli adım sayısı kadar hareket ettirir."""
+    GPIO.output(pin_dir, GPIO.HIGH if direction > 0 else GPIO.LOW)
+    for _ in range(steps):
+        GPIO.output(pin_step, GPIO.HIGH)
+        time.sleep(0.001)
+        GPIO.output(pin_step, GPIO.LOW)
+        time.sleep(0.001)
+
+
+def stop_motor():
+    """Motorları durdurur."""
+    GPIO.output([X_STEP_PIN, Y_STEP_PIN], GPIO.LOW)
+
+
+def control_motor(dx, dy):
+    """Hedefin konumuna göre motorları kontrol eder."""
+    if abs(dx) < 5 and abs(dy) < 5:
+        stop_motor()
+        return
+
+    # Motor hızlarını hesapla
+    v1 = abs((dx * v2) / (dy if dy != 0 else 1))  
+    steps_x = max(1, int(v1 / fps))   
+    steps_y = max(1, int(v2 / fps))
+
+    direction_x = 1 if dx > 0 else -1
+    direction_y = 1 if dy > 0 else -1
+
+    thread_x = threading.Thread(target=move_motor, args=(X_STEP_PIN, X_DIR_PIN, steps_x, direction_x), daemon=True)
+    thread_y = threading.Thread(target=move_motor, args=(Y_STEP_PIN, Y_DIR_PIN, steps_y, direction_y), daemon=True)
+
+    thread_x.start()
+    thread_y.start()
+
+
+def detect_target():
+    """Kamera görüntüsünde kırmızı hedefi algılar ve motorları kontrol eder."""
+    try:
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                print("Kamera görüntüsü alınamadı.")
+                break
+
+            blurred = cv2.GaussianBlur(frame, (11, 11), 0)
+            hsv = cv2.cvtColor(blurred, cv2.COLOR_BGR2HSV)
+
+            # Kırmızı renk aralığı
+            red_min1, red_max1 = np.array([0, 100, 100]), np.array([10, 255, 255])
+            red_min2, red_max2 = np.array([160, 100, 100]), np.array([180, 255, 255])
+
+            red_mask1 = cv2.inRange(hsv, red_min1, red_max1)
+            red_mask2 = cv2.inRange(hsv, red_min2, red_max2)
+            red_mask = cv2.add(red_mask1, red_mask2)
+
+            # OpenCV 3.x' e uygun şekilde sadece iki değer döndür
+            contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+            if contours:
+                # En büyük konturu seç
+                largest_contour = max(contours, key=cv2.contourArea)
+                M = cv2.moments(largest_contour)
+
+                if M["m00"] != 0:
+                    fx, fy = int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])
+                else:
+                    fx, fy = 0, 0
+
+                radius = cv2.minEnclosingCircle(largest_contour)[1]
+
+                if radius > 10:  # Belirli bir boyutun üzerindeyse
+                    dx, dy = center_x - fx, fy - center_y
+                    control_motor(dx, dy)
+
+                    # Görselleştirme
+                    cv2.circle(frame, (fx, fy), int(radius), (0, 255, 0), 2)
+                    cv2.putText(frame, f"Target (dx={dx}, dy={dy})", (10, 30),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+            else:
+                stop_motor()
+
+            # Görüntüyü göster
+            cv2.imshow("Target Detection", frame)
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
+
+    except KeyboardInterrupt:
+        print("Durduruluyor...")
+    finally:
+        cap.release()
+        cv2.destroyAllWindows()
+        GPIO.cleanup()
+
+
+# Algılama başlat
+detect_target()
