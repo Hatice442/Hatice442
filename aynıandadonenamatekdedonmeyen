@@ -1,0 +1,95 @@
+import Jetson.GPIO as GPIO
+import time
+import keyboard
+import threading 
+import queue
+
+#12 ye kesinlikle takma
+# jetsonun bazi pinlerinde temassizlik var. bunlar gpio menusunde gorulmez. deneme yanilma ile tespit edilecek
+PUL_PIN = 38
+DIR_PIN = 16
+PUL_PIN2 = 35
+DIR_PIN2 = 40
+
+
+GPIO.setmode(GPIO.BOARD)
+
+GPIO.setup(PUL_PIN,GPIO.OUT)
+GPIO.setup(DIR_PIN,GPIO.OUT)
+GPIO.setup(PUL_PIN2,GPIO.OUT)
+GPIO.setup(DIR_PIN2,GPIO.OUT)
+
+def step_motor1(direction,steps,delay):
+    GPIO.output(DIR_PIN,direction)
+    for _ in range (steps):
+        GPIO.output(PUL_PIN,GPIO.HIGH)
+        time.sleep(delay)
+        GPIO.output(PUL_PIN,GPIO.LOW)
+        time.sleep(delay)
+def step_motor2(direction,steps,delay):
+    GPIO.output(DIR_PIN2,direction)
+    for _ in range (steps):
+        GPIO.output(PUL_PIN2,GPIO.HIGH)
+        time.sleep(delay)
+        GPIO.output(PUL_PIN2,GPIO.LOW)
+        time.sleep(delay)
+"""
+# Not: Her iki dosyada da iki kod yer almakt olup kullanilmayacak kodlar yorum satiri yapilmistir. Bunun nedeni dosyalardan birinin zarar gormesi ihtimalidir.
+# Not: Butun motorlarin kontrolu tek bir fonksiyondan yapiliyor. Daha stabil calisiyor
+def motorControl1():
+    while True:
+        if keyboard.is_pressed('w'):
+            step_motor1(GPIO.HIGH,100,0.0005)
+            time.sleep(0.00005)
+        if keyboard.is_pressed('s'):
+            step_motor1(GPIO.LOW,100,0.0005)
+            time.sleep(0.00005)
+        if keyboard.is_pressed('a'):
+            step_motor2(GPIO.HIGH,100,0.0005)
+            time.sleep(0.00005)
+        if keyboard.is_pressed('d'):
+            step_motor2(GPIO.LOW,100,0.0005)
+            time.sleep(0.00005)
+        if keyboard.is_pressed ('q'):    # ***Cok onemli not: En son cikarken pinler temizlenmezse bu kod da dahil herhangi bir kod calistirildiginda pin kullaniliyor hatasi
+            GPIO.cleanup()               # verir
+
+motorControl1()
+"""
+
+
+#Not: 2 motorun kontrolu 2 farkli montor kontrol fonksiyonu ve threading fonksiyonu yardimi ile yapiliyor 
+#Not: Buradaki genel problem ayni anda iki motor donerken stabil, tek tek donerken stabil degil
+def motorControl1():
+   while True:
+        if keyboard.is_pressed('w'):
+            step_motor1(GPIO.HIGH,100,0.0005)
+        if keyboard.is_pressed('s'):
+            step_motor1(GPIO.LOW,100,0.0005)
+            time.sleep(0.00005)
+        if keyboard.is_pressed ('q'):  # ***Cok onemli not: En son cikarken pinler temizlenmezse bu kod da dahil herhangi bir kod calistirildiginda pin kullaniliyor hatasi
+            GPIO.cleanup()             # verir. Eger sadece bir motor kullanilirsa diye iki control fonksiyonunda da kullanilmalidir.
+
+def motorControl2():
+    while True:
+        if keyboard.is_pressed('a'):
+            step_motor2(GPIO.HIGH,100,0.0005)
+        if keyboard.is_pressed('d'):
+            step_motor2(GPIO.LOW,100,0.0005)
+            time.sleep(0.00005)
+        if keyboard.is_pressed ('q'):
+            GPIO.cleanup()
+
+# threading fonksiyonu ile fonksiyonlarin sirali degil paralel calistirilmasi
+motorControl1_thread= threading.Thread(target= motorControl1)
+motorControl2_thread= threading.Thread(target= motorControl2)
+motorControl1_thread.start()
+motorControl2_thread.start()
+
+
+# GPIO da sorun olursa : Lutfen ilk basta jetsonu yeniden baslatin. Bu sayede pinler temizlenir. Eger sorun giderilmezse menu ye erisin. 
+# Not : Menudeki butun pinleri actim. Suan hepsi acik durumda
+# GPIO pinine erismek icin terminal komutu:   
+#sudo /opt/nvidia/jetson-io/jetson-io.py
+
+
+
