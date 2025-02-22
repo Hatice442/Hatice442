@@ -1,0 +1,102 @@
+import cv2
+import numpy as np
+
+# Hedef Angajmanı (Belirlenen şekil ve renge göre gidilecek hedefler)
+target_positions = {
+    ("Mavi", "Üçgen"): (100, 200),
+    ("Mavi", "Kare"): (200, 300),
+    ("Mavi", "Daire"): (300, 400),
+    ("Yeşil", "Üçgen"): (400, 500),
+    ("Yeşil", "Kare"): (500, 600),
+    ("Yeşil", "Daire"): (600, 700),
+    ("Kırmızı", "Üçgen"): (700, 800),
+    ("Kırmızı", "Kare"): (800, 900),
+    ("Kırmızı", "Daire"): (900, 1000)
+}
+
+# Renk Aralıkları (HSV Formatı)
+color_ranges = {
+    "Mavi": ([100, 150, 50], [140, 255, 255]),
+    "Yeşil": ([40, 70, 50], [80, 255, 255]),
+    "Kırmızı1": ([0, 120, 70], [10, 255, 255]),
+    "Kırmızı2": ([170, 120, 70], [180, 255, 255])
+}
+
+# Kamerayı Aç
+cap = cv2.VideoCapture(0)
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    detected_shape = None
+    detected_color = None
+
+    for color, (lower, upper) in color_ranges.items():
+        lower = np.array(lower, dtype=np.uint8)
+        upper = np.array(upper, dtype=np.uint8)
+
+        # Renk maskesi oluştur
+        mask = cv2.inRange(hsv, lower, upper)
+
+        if color == "Kırmızı1":
+            lower2 = np.array(color_ranges["Kırmızı2"][0], dtype=np.uint8)
+            upper2 = np.array(color_ranges["Kırmızı2"][1], dtype=np.uint8)
+            mask2 = cv2.inRange(hsv, lower2, upper2)
+            mask = cv2.bitwise_or(mask, mask2)
+
+        # Gürültüyü temizle
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+
+        # Konturları bul
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+        for cnt in contours:
+            area = cv2.contourArea(cnt)
+            if area > 1000:  # Gürültüyü engellemek için alan filtresi
+                approx = cv2.approxPolyDP(cnt, 0.02 * cv2.arcLength(cnt, True), True)
+                x, y, w, h = cv2.boundingRect(cnt)
+
+                # Şekil Belirleme
+                shape = "Bilinmiyor"
+                if len(approx) == 3:
+                    shape = "Üçgen"
+                elif len(approx) == 4:
+                    aspect_ratio = w / float(h)
+                    shape = "Kare" if 0.95 <= aspect_ratio <= 1.05 else "Dikdörtgen"
+                elif len(approx) > 7:
+                    shape = "Daire"
+
+                detected_shape = shape
+                detected_color = color.replace("1", "").replace("2", "")  # Kırmızı için düzenleme
+
+                # Ekranda göster
+                cv2.drawContours(frame, [cnt], -1, (0, 255, 255), 2)
+                cv2.putText(frame, f"{detected_color} - {detected_shape}", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 2)
+
+                break  # İlk uygun şekli bulunca çık
+
+    # Hedefi Belirle ve Göster
+    if detected_color and detected_shape:
+        target_position = target_positions.get((detected_color, detected_shape), None)
+        if target_position:
+            x_target, y_target = target_position
+            print(f"Hedef Algılandı: {detected_color} - {detected_shape} -> Hedef Konumu: {x_target}, {y_target}")
+            
+            # Hedefin üzerine bir işaret koy
+            cv2.circle(frame, (x_target, y_target), 10, (0, 255, 0), -1)
+            cv2.putText(frame, f"Hedef: ({x_target}, {y_target})", (x_target + 10, y_target), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+    # Görüntüyü göster
+    cv2.imshow("Hedef Algılama", frame)
+
+    # Çıkış için 'q' tuşuna bas
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+cap.release()
+cv2.destroyAllWindows()
