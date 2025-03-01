@@ -1,0 +1,79 @@
+import cv2
+import numpy as np
+
+# Kamerayı başlat
+kamera = cv2.VideoCapture(0)
+if not kamera.isOpened():
+    print("Kamera açılamadı!")
+    exit()
+
+# HSV renk aralıkları (kırmızı renk için)
+lower_red = np.array([0, 120, 70])
+upper_red = np.array([10, 255, 255])
+lower_red2 = np.array([170, 120, 70])
+upper_red2 = np.array([180, 255, 255])
+
+while True:
+    # Kameradan bir kare al
+    ret, frame = kamera.read()
+    if not ret:
+        print("Görüntü alınamadı!")
+        break
+
+    # Görüntüyü HSV formatına çevir
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    # Renk maskeleme
+    mask1 = cv2.inRange(hsv, lower_red, upper_red)
+    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+    mask = mask1 | mask2
+
+    # Gürültü azaltma (CPU işlemleri)
+    mask = cv2.medianBlur(mask, 5)
+    
+    # Kontur tespiti (CPU)
+    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if len(contours) >= 2:
+        # Konturları alanlarına göre sırala
+        sorted_contours = sorted(contours, key=cv2.contourArea, reverse=True)
+        
+        # En büyük iki konturu al
+        contour1 = sorted_contours[0]
+        contour2 = sorted_contours[1]
+        
+        # Alanlarını hesapla
+        area1 = cv2.contourArea(contour1)
+        area2 = cv2.contourArea(contour2)
+
+        # Birinci nesneyi çerçevele
+        x1, y1, w1, h1 = cv2.boundingRect(contour1)
+        cv2.rectangle(frame, (x1, y1), (x1 + w1, y1 + h1), (0, 255, 0), 2)
+        cv2.putText(frame, f"Alan: {int(area1)}", (x1, y1 - 10), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+        # İkinci nesneyi çerçevele
+        x2, y2, w2, h2 = cv2.boundingRect(contour2)
+        cv2.rectangle(frame, (x2, y2), (x2 + w2, y2 + h2), (0, 255, 0), 2)
+        cv2.putText(frame, f"Alan: {int(area2)}", (x2, y2 - 10), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+        # Alanları karşılaştır ve büyük olanı işaretle
+        if area1 > area2:
+            cv2.putText(frame, "Bu nesne daha buyuk", (x1, y1 + 20), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+        else:
+            cv2.putText(frame, "Bu nesne daha buyuk", (x2, y2 + 20), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+
+    # Kameradan alınan görüntüyü ve maskeyi göster
+    cv2.imshow("Kamera Goruntusu", frame)
+    cv2.imshow("Kirmizi Nesne Maske", mask)
+
+    # 'x' tuşuna basıldığında çık
+    if cv2.waitKey(1) & 0xFF == ord('x'):
+        break
+
+# Kaynakları serbest bırak
+kamera.release()
+cv2.destroyAllWindows()
