@@ -1,0 +1,30 @@
+import cv2
+
+# Kamerayı başlat (0, genellikle ana kamera içindir, başka bir kamera varsa 1, 2 vb. kullanılabilir)
+kamera = cv2.VideoCapture(0)
+
+# Kamera açılmadıysa hata mesajı ver
+if not kamera.isOpened():
+    print("Kamera açılamadı!")
+    exit()
+
+# Kamera görüntüsünü almak için döngü başlat
+while True:
+    # Kamera'dan bir kare al
+    ret, frame = kamera.read()
+    
+    # Görüntü alınamadıysa çıkış yap
+    if not ret:
+        print("Görüntü alınamadı!")
+        break
+
+    # Kameradan alınan görüntüyü ekranda göster
+    cv2.imshow("Kamera Goruntusu", frame)
+
+    # 'x' tuşuna basıldığında çık
+    if cv2.waitKey(1) & 0xFF == ord('x'):
+        break
+
+# Kaynakları serbest bırak
+kamera.release()
+cv2.destroyAllWindows()
