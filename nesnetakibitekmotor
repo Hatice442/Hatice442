@@ -1,0 +1,128 @@
+# PYTHON KODU
+
+
+import cv2
+import numpy as np
+import serial
+import time
+
+# Arduino ile seri haberleşme için portu belirtin (örneğin: 'COM3' ya da '/dev/ttyUSB0')
+ser = serial.Serial('COM8', 9600)
+time.sleep(2)  # Arduino'ya bağlantı için biraz bekle
+
+# Kamera başlatma
+cap = cv2.VideoCapture(0)
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    # Kırmızı rengi algılamak için HSV renk alanına dönüştürme
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+
+    # Kırmızı renk için HSV aralığı
+    lower_red = np.array([0, 120, 70])
+    upper_red = np.array([10, 255, 255])
+    mask = cv2.inRange(hsv, lower_red, upper_red)
+
+    # Diğer kırmızı tonları da kapsamak için başka bir aralık ekleyelim
+    lower_red2 = np.array([170, 120, 70])
+    upper_red2 = np.array([180, 255, 255])
+    mask2 = cv2.inRange(hsv, lower_red2, upper_red2)
+
+    # Maskeleri birleştirme
+    mask = cv2.bitwise_or(mask, mask2)
+
+    # Maskelenmiş resmi işleme
+    result = cv2.bitwise_and(frame, frame, mask=mask)
+
+    # Kırmızı nesnenin konturlarını bulma
+    contours, _ = cv2.findContours(mask, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    if contours:
+        # En büyük konturu bulma
+        largest_contour = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(largest_contour)
+
+        # Nesnenin merkezini hesaplama
+        center_x = x + w // 2
+        center_y = y + h // 2
+
+        # Nesneyi çerçeve içine alma
+        cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+
+        # Merkez noktasını işaretleme
+        cv2.circle(frame, (center_x, center_y), 5, (0, 0, 255), -1)
+
+        # Arduino'ya motor hareketini göndermek için veri
+        if center_x < 250:  # Eğer nesne ekranın sol kısmında
+            ser.write(b'W')  # Sol motoru hareket ettir
+        elif center_x > 350:  # Eğer nesne ekranın sağ kısmında
+            ser.write(b'S')  # Sağ motoru hareket ettir
+        else:
+            ser.write(b'X')  # Dur, nesne merkezdeyse
+            ser.write(b'Y')  # Dur, nesne merkezdeyse
+
+    # Kamerayı ekranda göster
+    cv2.imshow('Kamera Görüntüsü', frame)
+
+    # 'q' tuşuna basıldığında çık
+    if cv2.waitKey(1) & 0xFF == ord('q'):
+        break
+
+# Kamerayı ve OpenCV penceresini kapat
+cap.release()
+cv2.destroyAllWindows()
+
+
+# ARDUİNO KODU
+
+#include <AccelStepper.h>
+
+// Motor tanımlamaları
+#define STEP1 9  // 1. motor STEP pini
+#define DIR1 8   // 1. motor DIRECTION pini
+#define STEP2 11  // 2. motor STEP pini
+#define DIR2 10   // 2. motor DIRECTION pini
+
+AccelStepper motor1(AccelStepper::DRIVER, STEP1, DIR1);
+AccelStepper motor2(AccelStepper::DRIVER, STEP2, DIR2);
+
+void setup() {
+    Serial.begin(9600);
+    
+    motor1.setMaxSpeed(1000);
+    motor2.setMaxSpeed(1000);
+    
+    motor1.setSpeed(0);
+    motor2.setSpeed(0);
+}
+
+void loop() {
+    if (Serial.available()) {
+        char komut = Serial.read();
+        
+        // 1. motor (W: ileri, S: geri)
+        if (komut == 'W') {
+            motor1.setSpeed(500);
+        } else if (komut == 'S') {
+            motor1.setSpeed(-500);
+        } else if (komut == 'X') {  // Durdur
+            motor1.setSpeed(0);
+        }
+
+        // 2. motor (A: sola, D: sağa)
+        if (komut == 'A') {
+            motor2.setSpeed(500);
+        } else if (komut == 'D') {
+            motor2.setSpeed(-500);
+        } else if (komut == 'Y') {  // Durdur
+            motor2.setSpeed(0);
+        }
+    }
+
+    // Aynı anda çalıştır
+    motor1.runSpeed();
+    motor2.runSpeed();
+}
